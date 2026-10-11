@@ -11,12 +11,13 @@ import speech_recognition as sr
 SAMPLE_RATE = 16000
 BLOCK_SIZE = 4000
 CALIBRATION_BLOCKS = 4
-MIN_SPEECH_THRESHOLD = 180
-SPEECH_THRESHOLD_MULTIPLIER = 1.6
+MIN_SPEECH_THRESHOLD = 120
+SPEECH_THRESHOLD_MULTIPLIER = 1.4
 AMBIENT_ADAPTATION_RATE = 0.05
-SILENCE_BLOCKS = 4
+SILENCE_BLOCKS = 5
 MAX_UTTERANCE_BLOCKS = 120
 GOOGLE_REQUEST_TIMEOUT = 15
+TRANSCRIPTION_ATTEMPTS = 2
 STATUS_INTERVAL_SECONDS = 2
 
 
@@ -27,17 +28,30 @@ def _transcribe_worker(recognizer, language, utterance_queue, result_queue):
             return
 
         audio_data = sr.AudioData(audio.tobytes(), SAMPLE_RATE, 2)
-        try:
-            text = recognizer.recognize_google(audio_data, language=language)
-        except sr.UnknownValueError:
-            print("Speech was captured, but Google could not recognize the words.")
-        except sr.RequestError as error:
-            print(f"Google speech recognition request failed: {error}")
-        else:
-            if text.strip():
-                result_queue.put(text.strip())
+        for attempt in range(1, TRANSCRIPTION_ATTEMPTS + 1):
+            try:
+                text = recognizer.recognize_google(audio_data, language=language)
+            except sr.UnknownValueError:
+                print("Speech was captured, but Google could not recognize the words.")
+                break
+            except sr.RequestError as error:
+                if attempt == TRANSCRIPTION_ATTEMPTS:
+                    print(
+                        "Google speech recognition request failed after "
+                        f"{attempt} attempts: {error}"
+                    )
+                else:
+                    print(
+                        "Google speech recognition request failed; "
+                        "retrying once..."
+                    )
+                    time.sleep(0.5)
             else:
-                print("Google returned an empty transcription.")
+                if text.strip():
+                    result_queue.put(text.strip())
+                else:
+                    print("Google returned an empty transcription.")
+                break
 
 
 def start_listening(language="en-US", on_transcription=None):

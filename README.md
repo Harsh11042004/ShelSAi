@@ -125,16 +125,17 @@ Microphone
 
 Audio is mono, 16 kHz, signed 16-bit PCM. Each input block is 4,000 samples
 (about 250 ms). Four initial blocks estimate ambient noise. Speech is considered
-active above the greater of an RMS level of 180 or 1.6 times that estimate.
+active above the greater of an RMS level of 120 or 1.4 times that estimate.
 During quiet periods, the ambient estimate adapts to the microphone level. Two
 blocks of pre-roll are retained so the start of a phrase is less likely to be
-clipped. A phrase is submitted after four low-level blocks (about one second)
+clipped. A phrase is submitted after five low-level blocks (about 1.25 seconds)
 or after a 30-second maximum phrase length. Periodic RMS/threshold output helps
 diagnose input-device and sensitivity issues.
 
 The input callback only copies audio into a queue; phrase splitting and Google
 requests happen outside that callback. A background thread calls
-`recognize_google`, with a 15-second operation timeout. Recognized results are
+`recognize_google`, with a 15-second operation timeout and one retry for
+transient request failures. Recognized results are
 handled by the main listening loop. A slow command lookup can temporarily delay
 that loop from draining new audio, so keep voice commands short.
 
