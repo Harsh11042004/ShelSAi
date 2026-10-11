@@ -9,6 +9,7 @@ __pycache__/
 .env.*
 !.env.example
 my_installed_apps.txt
+SHELSAI_DEVELOPER_GUIDE.local.md
 
 # Downloaded model assets are not used by the current application
 vosk-model-en-us-0.22-lgraph/
@@ -17,4 +18,3 @@ vosk-model-en-us-0.22-lgraph/
 *.lnk
 Thumbs.db
 Desktop.ini
-
