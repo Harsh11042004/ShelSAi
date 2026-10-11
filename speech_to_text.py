@@ -1,5 +1,6 @@
 import queue
 import threading
+import time
 from collections import deque
 
 import numpy as np
@@ -11,10 +12,12 @@ SAMPLE_RATE = 16000
 BLOCK_SIZE = 4000
 CALIBRATION_BLOCKS = 4
 MIN_SPEECH_THRESHOLD = 180
-SPEECH_THRESHOLD_MULTIPLIER = 2.5
-SILENCE_BLOCKS = 3
+SPEECH_THRESHOLD_MULTIPLIER = 1.6
+AMBIENT_ADAPTATION_RATE = 0.05
+SILENCE_BLOCKS = 4
 MAX_UTTERANCE_BLOCKS = 120
 GOOGLE_REQUEST_TIMEOUT = 15
+STATUS_INTERVAL_SECONDS = 2
 
 
 def _transcribe_worker(recognizer, language, utterance_queue, result_queue):
@@ -33,11 +36,14 @@ def _transcribe_worker(recognizer, language, utterance_queue, result_queue):
         else:
             if text.strip():
                 result_queue.put(text.strip())
+            else:
+                print("Google returned an empty transcription.")
 
 
 def start_listening(language="en-US", on_transcription=None):
     recognizer = sr.Recognizer()
     recognizer.operation_timeout = GOOGLE_REQUEST_TIMEOUT
+    input_device = sd.query_devices(kind="input")
     audio_queue = queue.Queue(maxsize=64)
     utterance_queue = queue.Queue(maxsize=10)
     status_queue = queue.Queue()
@@ -52,10 +58,15 @@ def start_listening(language="en-US", on_transcription=None):
     transcription_thread.start()
 
     print("Listening with Google speech recognition.")
+    print(
+        f"Microphone input: {input_device['name']} "
+        f"({input_device['max_input_channels']} input channels available)."
+    )
     print("Audio is sent to Google for transcription. Press Ctrl+C to stop.")
     print("Keep quiet for one second while the microphone calibrates.")
     print("Activation word: 'Kestrel' (Google may transcribe it as 'Castrol').")
     print("Say it before each command.")
+    print("Speak after calibration. The live RMS and threshold will be shown periodically.")
 
     def callback(indata, frames, time, status):
         if status:
@@ -71,15 +82,22 @@ def start_listening(language="en-US", on_transcription=None):
     speech_active = False
     ambient_levels = []
     speech_threshold = MIN_SPEECH_THRESHOLD
+    ambient_level = None
+    last_status_at = time.monotonic()
 
     def submit_utterance():
         nonlocal utterance, silence_count, speech_active
         if utterance:
             audio = np.concatenate(utterance)
+            duration = len(audio) / SAMPLE_RATE
             try:
                 utterance_queue.put_nowait(audio)
+                print(f"Captured {duration:.1f}s of speech; sending it to Google...")
             except queue.Full:
-                print("Transcription queue is full; this phrase was skipped.")
+                print(
+                    "Transcription queue is full; "
+                    f"the {duration:.1f}s phrase was skipped."
+                )
         utterance = []
         silence_count = 0
         speech_active = False
@@ -129,10 +147,23 @@ def start_listening(language="en-US", on_transcription=None):
                             MIN_SPEECH_THRESHOLD,
                             ambient_level * SPEECH_THRESHOLD_MULTIPLIER,
                         )
-                        print("Microphone calibrated. Speak naturally.")
+                        print(
+                            "Microphone calibrated. "
+                            f"Background RMS: {ambient_level:.0f}; "
+                            f"speech threshold: {speech_threshold:.0f}. "
+                            "Speak naturally."
+                        )
                     continue
 
                 is_speech = level >= speech_threshold
+                now = time.monotonic()
+                if now - last_status_at >= STATUS_INTERVAL_SECONDS:
+                    print(
+                        f"Microphone level RMS: {level:.0f} "
+                        f"(speech threshold: {speech_threshold:.0f})"
+                    )
+                    last_status_at = now
+
                 if not speech_active:
                     pre_roll.append(samples.copy())
                     if is_speech:
@@ -140,10 +171,20 @@ def start_listening(language="en-US", on_transcription=None):
                         utterance.extend(pre_roll)
                         pre_roll.clear()
                         silence_count = 0
+                        print("Speech detected; listening for the end of the phrase...")
+                    else:
+                        ambient_level = (
+                            (1 - AMBIENT_ADAPTATION_RATE) * ambient_level
+                            + AMBIENT_ADAPTATION_RATE * level
+                        )
+                        speech_threshold = max(
+                            MIN_SPEECH_THRESHOLD,
+                            ambient_level * SPEECH_THRESHOLD_MULTIPLIER,
+                        )
                     continue
 
                 utterance.append(samples.copy())
-                if is_speech:
+                if level >= speech_threshold * 0.65:
                     silence_count = 0
                 else:
                     silence_count += 1
