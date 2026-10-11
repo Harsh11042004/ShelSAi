@@ -1,0 +1,20 @@
+# Python environments and generated files
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Local configuration and generated application inventory
+.env
+.env.*
+!.env.example
+my_installed_apps.txt
+
+# Downloaded model assets are not used by the current application
+vosk-model-en-us-0.22-lgraph/
+
+# Local Windows shortcuts and operating-system metadata
+*.lnk
+Thumbs.db
+Desktop.ini
+

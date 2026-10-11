@@ -1,0 +1,3 @@
+numpy>=1.26,<3
+SpeechRecognition>=3.14,<4
+sounddevice>=0.5,<1
